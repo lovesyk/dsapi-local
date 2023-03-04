@@ -12,7 +12,7 @@ const IP = '172.16.0.195';
 export class AppService {
   private readonly logger = new Logger(AppService.name);
 
-  constructor(private readonly httpService: HttpService) {}
+  constructor(private readonly httpService: HttpService) { }
 
   async setMode(mode: Mode, humidity: Humidity) {
     const data = this.createSetModeRequestWrapper(mode, humidity);
@@ -47,7 +47,7 @@ export class AppService {
                   {
                     pch: [
                       ...this.toFanPc(mode),
-                      this.toModePc(mode),
+                      this.toModePc(mode, humidity),
                       ...this.toHumidityPc(mode, humidity),
                     ],
                     pn: 'e_3007',
@@ -85,11 +85,11 @@ export class AppService {
   private toFanPc(mode: Mode): DsapiPcInner[] {
     return this.isFanMode(mode)
       ? [
-          {
-            pn: 'p_06',
-            pv: this.toFanPv(mode),
-          },
-        ]
+        {
+          pn: 'p_06',
+          pv: this.toFanPv(mode),
+        },
+      ]
       : [];
   }
 
@@ -116,19 +116,20 @@ export class AppService {
     );
   }
 
-  private toModePc(mode: Mode): DsapiPcInner {
+  private toModePc(mode: Mode, humidity: Humidity): DsapiPcInner {
     return {
-      pn: this.toModePn(mode),
+      pn: this.toModePn(mode, humidity),
       pv: this.toModePv(mode),
     };
   }
 
-  private toModePn(mode: Mode): string {
+  private toModePn(mode: Mode, humidity: Humidity): string {
     switch (mode) {
       case Mode.SMART:
-      case Mode.ECONO:
         return 'p_01';
       case Mode.MOIST:
+        return 'p_03'
+      case Mode.ECONO:
       case Mode.AUTOFAN:
       case Mode.POLLEN:
       case Mode.CIRCULATOR:
@@ -136,7 +137,7 @@ export class AppService {
       case Mode.LOW:
       case Mode.STANDARD:
       case Mode.TURBO:
-        return 'p_03';
+        return humidity === Humidity.OFF ? 'p_01' : 'p_03';
     }
     throw new Error('not implemented');
   }
@@ -168,11 +169,11 @@ export class AppService {
     return humidity === Humidity.OFF
       ? []
       : [
-          {
-            pn: this.toHumidityPn(mode),
-            pv: this.toHumidityPv(humidity),
-          },
-        ];
+        {
+          pn: this.toHumidityPn(mode),
+          pv: this.toHumidityPv(humidity),
+        },
+      ];
   }
 
   private toHumidityPn(mode: Mode): string {
