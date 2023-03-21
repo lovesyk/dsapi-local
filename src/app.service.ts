@@ -2,9 +2,13 @@ import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger } from '@nestjs/common';
 import { AxiosError } from 'axios';
 import { catchError, firstValueFrom } from 'rxjs';
+import { Fan } from './dsapi/fan.enum';
+import { HumidifyMode } from './dsapi/humidifyMode.enum';
 import { Humidity } from './dsapi/humidity.enum';
-import { DsapiPcInner, DsapiRequestWrapper } from './dsapi/iface';
+import { Humidity2 } from './dsapi/humidity2.enum';
+import { CommonPropertyHierarchy, DgcStatusRequest, HumidiferEnabledFanConfig, HumidiferStateConfig, HumidifierEnabledModeConfig, HumidityConfig, ModePropertyHierarchy, PowerConfig, PowerPropertyHierarchy, PurifierOnlyModeConfig, PurifyOnlyFanConfig, RequestWrapper, StatePropertyHierarchy } from './dsapi/iface';
 import { Mode } from './dsapi/mode.enum';
+import { Mode2 } from './dsapi/mode2.enum';
 
 const IP = '172.16.0.195';
 
@@ -15,7 +19,7 @@ export class AppService {
   constructor(private readonly httpService: HttpService) { }
 
   async setMode(mode: Mode, humidity: Humidity) {
-    const data = this.createSetModeRequestWrapper(mode, humidity);
+    const data = this.createSetModeRequestWrapper(mode, humidity).toJson();
     const debugData = JSON.stringify(data);
     this.logger.debug(`Sending request: ${debugData}`);
 
@@ -35,193 +39,142 @@ export class AppService {
   private createSetModeRequestWrapper(
     mode: Mode,
     humidity: Humidity,
-  ): DsapiRequestWrapper {
-    return {
-      requests: [
-        {
-          op: 3,
-          pc: {
-            pch: [
-              {
-                pch: [
-                  {
-                    pch: [
-                      ...this.toFanPc(mode),
-                      this.toModePc(mode, humidity),
-                      ...this.toHumidityPc(mode, humidity),
-                    ],
-                    pn: 'e_3007',
-                  },
-                  {
-                    pch: [
-                      {
-                        pn: 'p_3F',
-                        pv: this.toHumidifierState(mode, humidity),
-                      },
-                    ],
-                    pn: 'e_3001',
-                  },
-                  {
-                    pch: [
-                      {
-                        pn: 'p_01',
-                        pv: '01',
-                      },
-                    ],
-                    pn: 'e_A002',
-                  },
-                ],
-                pn: 'e_1002',
-              },
-            ],
-            pn: 'dgc_status',
-          },
-          to: '/dsiot/edge/adr_0100.dgc_status',
-        },
-      ],
-    };
+  ): RequestWrapper {
+    const modePropertyHierarchy = new ModePropertyHierarchy()
+    const statePropertyHierarchy = new StatePropertyHierarchy()
+
+    const mode2 = this.toMode2(mode)
+    const fan = this.toFan(mode)
+    if (this.isHumidifierEnabled(mode, humidity)) {
+      const modeConfig = new HumidifierEnabledModeConfig(mode2)
+      modePropertyHierarchy.add(modeConfig)
+
+      if (fan !== null) {
+        const fanConfig = new HumidiferEnabledFanConfig(fan)
+        modePropertyHierarchy.add(fanConfig)
+      }
+
+      const humidifyMode = this.toHumidifyMode(mode2)
+      if (humidifyMode !== null) { // manual humidity mode
+        const humidity2 = this.toHumidity2(humidity)
+        const humidityConfig = new HumidityConfig(humidifyMode, humidity2)
+        modePropertyHierarchy.add(humidityConfig)
+      }
+
+      const humidiferStateConfig = new HumidiferStateConfig(true)
+      statePropertyHierarchy.add(humidiferStateConfig)
+    } else {
+      const modeConfig = new PurifierOnlyModeConfig(mode2)
+      modePropertyHierarchy.add(modeConfig)
+
+      if (fan !== null) {
+        const fanConfig = new PurifyOnlyFanConfig(fan)
+        modePropertyHierarchy.add(fanConfig)
+      }
+
+      const humidiferStateConfig = new HumidiferStateConfig(false)
+      statePropertyHierarchy.add(humidiferStateConfig)
+    }
+
+    const powerPropertyHierarchy = new PowerPropertyHierarchy()
+    const powerConfig = new PowerConfig(true)
+    powerPropertyHierarchy.add(powerConfig)
+
+    const commonPropertyHierarchy = new CommonPropertyHierarchy()
+    commonPropertyHierarchy.add(modePropertyHierarchy)
+    commonPropertyHierarchy.add(statePropertyHierarchy)
+    commonPropertyHierarchy.add(powerPropertyHierarchy)
+
+    const request = new DgcStatusRequest();
+    request.add(commonPropertyHierarchy)
+
+    const requestWrapper = new RequestWrapper()
+    requestWrapper.add(request)
+
+    return requestWrapper
   }
 
-  private toFanPc(mode: Mode): DsapiPcInner[] {
-    return this.isFanMode(mode)
-      ? [
-        {
-          pn: 'p_06',
-          pv: this.toFanPv(mode),
-        },
-      ]
-      : [];
+  private toHumidifyMode(mode2: Mode2): HumidifyMode | null {
+    switch (mode2) {
+      case Mode2.ECONO:
+        return HumidifyMode.ECONO
+      case Mode2.AUTOFAN:
+        return HumidifyMode.AUTOFAN
+      case Mode2.POLLEN:
+        return HumidifyMode.POLLEN
+      case Mode2.CIRCULATOR:
+        return HumidifyMode.CIRCULATOR
+      case Mode2.MANUAL:
+        return HumidifyMode.MANUAL
+    }
+    return null
   }
 
-  toFanPv(mode: Mode): string {
+  private toFan(mode: Mode): Fan | null {
     switch (mode) {
       case Mode.QUIET:
-        return '00';
+        return Fan.QUIET
       case Mode.LOW:
-        return '01';
+        return Fan.LOW
       case Mode.STANDARD:
-        return '02';
+        return Fan.STANDARD
       case Mode.TURBO:
-        return '04';
+        return Fan.TURBO
     }
-    throw new Error('not implemented');
+    return null
   }
 
-  private isFanMode(mode: Mode): boolean {
-    return (
-      mode === Mode.QUIET ||
-      mode == Mode.LOW ||
-      mode == Mode.STANDARD ||
-      mode == Mode.TURBO
-    );
-  }
-
-  private toModePc(mode: Mode, humidity: Humidity): DsapiPcInner {
-    return {
-      pn: this.toModePn(mode, humidity),
-      pv: this.toModePv(mode),
-    };
-  }
-
-  private toModePn(mode: Mode, humidity: Humidity): string {
+  private toMode2(mode: Mode): Mode2 {
     switch (mode) {
       case Mode.SMART:
-        return 'p_01';
+        return Mode2.SMART
       case Mode.MOIST:
-        return 'p_03'
+        return Mode2.MOIST
       case Mode.ECONO:
+        return Mode2.ECONO
       case Mode.AUTOFAN:
+        return Mode2.AUTOFAN
       case Mode.POLLEN:
+        return Mode2.POLLEN
       case Mode.CIRCULATOR:
+        return Mode2.CIRCULATOR
       case Mode.QUIET:
       case Mode.LOW:
       case Mode.STANDARD:
       case Mode.TURBO:
-        return humidity === Humidity.OFF ? 'p_01' : 'p_03';
+        return Mode2.MANUAL
     }
     throw new Error('not implemented');
   }
 
-  private toModePv(mode: Mode): string {
-    switch (mode) {
-      case Mode.SMART:
-        return '0000';
-      case Mode.MOIST:
-        return '0500';
-      case Mode.AUTOFAN:
-        return '0200';
-      case Mode.POLLEN:
-        return '0400';
-      case Mode.ECONO:
-        return '0300';
-      case Mode.CIRCULATOR:
-        return '0600';
-      case Mode.QUIET:
-      case Mode.LOW:
-      case Mode.STANDARD:
-      case Mode.TURBO:
-        return '0100';
-    }
-    throw new Error('not implemented');
+  private isHumidifierEnabled(mode: Mode, humidity: Humidity): boolean {
+    return mode === Mode.MOIST || humidity !== Humidity.OFF
   }
 
-  private toHumidityPc(mode: Mode, humidity: Humidity): DsapiPcInner[] {
-    return humidity === Humidity.OFF
-      ? []
-      : [
-        {
-          pn: this.toHumidityPn(mode),
-          pv: this.toHumidityPv(humidity),
-        },
-      ];
-  }
-
-  private toHumidityPn(mode: Mode): string {
+  private isHumidifierManual(mode: Mode) {
     switch (mode) {
       case Mode.AUTOFAN:
-        return 'p_14';
       case Mode.ECONO:
-        return 'p_15';
       case Mode.POLLEN:
-        return 'p_16';
       case Mode.CIRCULATOR:
-        return 'p_18';
       case Mode.QUIET:
       case Mode.LOW:
       case Mode.STANDARD:
       case Mode.TURBO:
-        return 'p_13';
+        return true
     }
-    throw new Error('not implemented');
+
+    return false
   }
 
-  private toHumidityPv(humidity: Humidity) {
+  private toHumidity2(humidity: Humidity): Humidity2 {
     switch (humidity) {
       case Humidity.LOW:
-        return '01';
+        return Humidity2.LOW
       case Humidity.STANDARD:
-        return '02';
+        return Humidity2.STANDARD
       case Humidity.HIGH:
-        return '03';
-    }
-    throw new Error('not implemented');
-  }
-
-  private toHumidifierState(mode: Mode, humidity: Humidity): string {
-    switch (mode) {
-      case Mode.SMART:
-        return '00';
-      case Mode.MOIST:
-        return '02';
-      case Mode.AUTOFAN:
-      case Mode.ECONO:
-      case Mode.POLLEN:
-      case Mode.CIRCULATOR:
-      case Mode.QUIET:
-      case Mode.LOW:
-      case Mode.STANDARD:
-      case Mode.TURBO:
-        return humidity == Humidity.OFF ? '00' : '02';
+        return Humidity2.HIGH
     }
     throw new Error('not implemented');
   }
