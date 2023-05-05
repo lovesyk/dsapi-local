@@ -6,9 +6,8 @@ import {
   Put
 } from '@nestjs/common';
 import { AppService } from './app.service';
-import { Humidity } from './dsapi/humidity.enum';
-import { Mode } from './dsapi/mode.enum';
 import { SetModeRequest } from './rest/setmode.request';
+import { Humidify, Purify } from './purifier/request.local';
 
 @Controller()
 export class AppController {
@@ -28,50 +27,50 @@ export class AppController {
     await this.appService.setMode(mode, humidity);
   }
 
-  private toMode(mode?: string): Mode | null {
+  private toMode(mode?: string): Purify | null {
     if (mode) {
       switch (mode.toLowerCase()) {
         case 'smart':
-          return Mode.SMART;
+          return Purify.SMART;
         case 'autofan':
-          return Mode.AUTOFAN;
+          return Purify.AUTOFAN;
         case 'econo':
-          return Mode.ECONO;
+          return Purify.ECONO;
         case 'pollen':
-          return Mode.POLLEN;
+          return Purify.POLLEN;
         case 'moist':
-          return Mode.MOIST;
+          return Purify.MOIST;
         case 'circulator':
-          return Mode.CIRCULATOR;
+          return Purify.CIRCULATOR;
         case 'quiet':
-          return Mode.QUIET;
+          return Purify.QUIET;
         case 'low':
-          return Mode.LOW;
+          return Purify.LOW;
         case 'standard':
-          return Mode.STANDARD;
+          return Purify.STANDARD;
         case 'turbo':
-          return Mode.TURBO;
+          return Purify.TURBO;
       }
     }
 
     return null;
   }
 
-  private toHumidity(mode: Mode, humidity?: string): Humidity | null {
-    if (mode === Mode.SMART || mode === Mode.MOIST) {
-      return humidity ? null : Humidity.OFF;
+  private toHumidity(mode: Purify, humidity?: string): Humidify | null {
+    if (mode === Purify.SMART || mode === Purify.MOIST) {
+      return humidity ? null : Humidify.OFF;
     }
 
     if (humidity) {
       switch (humidity.toLowerCase()) {
         case 'off':
-          return Humidity.OFF;
+          return Humidify.OFF;
         case 'low':
-          return Humidity.LOW;
+          return Humidify.LOW;
         case 'standard':
-          return Humidity.STANDARD;
+          return Humidify.STANDARD;
         case 'high':
-          return Humidity.HIGH;
+          return Humidify.HIGH;
       }
     }
 
