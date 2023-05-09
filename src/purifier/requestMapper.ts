@@ -61,12 +61,22 @@ export default class RequestMapper {
         const purify = this.localRequest.purify
         const humidify = this.localRequest.humidify
         if (purify !== undefined && humidify !== undefined) {
-            this.setProperty("e_3007", this.toPurifyModePropertyName(humidify), this.toPurifyModePropertyValue(purify))
+            this.setProperty("e_3007", this.toPurifyModePropertyName(purify, humidify), this.toPurifyModePropertyValue(purify))
         }
     }
 
-    private toPurifyModePropertyName(humidify: Humidify): string {
-        return humidify === Humidify.OFF ? "p_01" : "p_03"
+    private toPurifyModePropertyName(purify: Purify, humidify: Humidify): string {
+        return this.isHumidifyEnabled(purify, humidify) ? "p_03" : "p_01"
+    }
+
+    private isHumidifyEnabled(purify: Purify, humidify: Humidify): boolean {
+        switch (purify) {
+            case Purify.SMART:
+                return false;
+            case Purify.MOIST:
+                return true;
+        }
+        return humidify !== Humidify.OFF
     }
 
     private toPurifyModePropertyValue(purify: Purify): string {
@@ -133,19 +143,19 @@ export default class RequestMapper {
         const purify = this.localRequest.purify
         const humidify = this.localRequest.humidify
         if (purify !== undefined && humidify !== undefined) {
-            this.setProperty("e_3001", "p_3F", this.toHumidifyStatePropertyValue(humidify))
-            if (humidify !== Humidify.OFF) {
+            this.setProperty("e_3001", "p_3F", this.toHumidifyStatePropertyValue(purify, humidify))
+            if (this.isManualHumidify(purify) && humidify !== Humidify.OFF) {
                 this.setProperty("e_3007", this.toHumidifyLevelPropertyName(purify), this.toHumidifyLevelPropertyValue(humidify))
             }
         }
     }
 
-    private toHumidifyStatePropertyValue(humidify: Humidify): string {
-        switch (humidify) {
-            case Humidify.OFF:
-                return '00';
-        }
-        return '02'
+    private toHumidifyStatePropertyValue(purify: Purify, humidify: Humidify): string {
+        return this.isHumidifyEnabled(purify, humidify) ? "02" : "00"
+    }
+
+    private isManualHumidify(purify: Purify): boolean {
+        return purify !== Purify.SMART && purify !== Purify.MOIST;
     }
 
     private toHumidifyLevelPropertyName(purify: Purify): string {
